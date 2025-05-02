@@ -524,6 +524,47 @@ func influxHandler(mmgr modemmanager.ModemManager) http.HandlerFunc {
 					}
 				}
 			}
+
+			bearers, _ := modem.GetBearers()
+			for _, bearer := range bearers {
+				bearerType, err := bearer.GetBearerType()
+				if err != nil {
+					log.Println("error getting bearer type:", err)
+					bearerType = modemmanager.MmBearerTypeUnknown
+				}
+				stats, err := bearer.GetStats()
+				if err != nil {
+					log.Println("error getting bearer stats:", err)
+				} else {
+					w.Write([]byte(fmt.Sprintf("modem_bearer_stats,%s,bearer=%s rx_bytes=%du,tx_bytes=%du,duration=%du %d\n", tags, bearerType.String(), stats.RxBytes, stats.TxBytes, stats.Duration, timestamp)))
+				}
+
+				bearerIpConfig, err := bearer.GetIp4Config()
+				if err != nil {
+					log.Println("error getting bearer ip config:", err)
+				} else {
+					w.Write([]byte(fmt.Sprintf("modem_bearer_ip_config,%s,bearer=%s ip=%s %d\n", tags, bearerType.String(), bearerIpConfig.Address, timestamp)))
+				}
+
+				bearerIp6Config, err := bearer.GetIp6Config()
+				if err != nil {
+					log.Println("error getting bearer ip6 config:", err)
+				} else {
+					w.Write([]byte(fmt.Sprintf("modem_bearer_ip6_config,%s,bearer=%s ip=%s %d\n", tags, bearerType.String(), bearerIp6Config.Address, timestamp)))
+				}
+			}
+
+			messaging, err := modem.GetMessaging()
+			if err != nil {
+				log.Println("error getting messaging:", err)
+			} else {
+				messages, err := messaging.List()
+				if err != nil {
+					log.Println("error listing messages:", err)
+				} else {
+					w.Write([]byte(fmt.Sprintf("modem_message_count,%s message_count=%du %d\n", tags, len(messages), timestamp)))
+				}
+			}
 		}
 	}
 }
