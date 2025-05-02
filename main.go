@@ -371,6 +371,159 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 
 }
 
+func influxHandler(mmgr modemmanager.ModemManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		modems, err := mmgr.GetModems()
+		if err != nil {
+			log.Println("error getting modems:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte("error getting modems: " + err.Error()))
+			return
+		}
+		for _, modem := range modems {
+			modem3gpp, err := modem.Get3gpp()
+			if err != nil {
+				log.Println("error getting 3gpp:", err)
+				continue
+			}
+			imei, _ := modem3gpp.GetImei()
+			sim, err := modem.GetSim()
+			if err != nil {
+				log.Println("error getting sim:", err)
+				continue
+			}
+			simIdent, err := sim.GetSimIdentifier()
+			if err != nil {
+				log.Println("error getting sim identifier:", err)
+				continue
+			}
+			simImsi, err := sim.GetImsi()
+			if err != nil {
+				log.Println("error getting sim imsi:", err)
+				continue
+			}
+			simOpIdent, err := sim.GetOperatorIdentifier()
+			if err != nil {
+				log.Println("error getting sim operator identifier:", err)
+				continue
+			}
+			simOp, err := sim.GetOperatorName()
+			if err != nil {
+				log.Println("error getting sim operator name:", err)
+				continue
+			}
+			opName, err := modem3gpp.GetOperatorName()
+			if err != nil {
+				log.Println("error getting operator name:", err)
+				continue
+			}
+			ratList, err := modem.GetAccessTechnologies()
+			if err != nil {
+				log.Println("error getting access technologies:", err)
+				continue
+			}
+			rat := ""
+			if len(ratList) > 0 {
+				rat = strings.ToLower(ratList[0].String())
+			}
+			modemLocation, err := modem.GetLocation()
+			if err != nil {
+				log.Println("error getting modem location:", err)
+				continue
+			}
+			mloc, err := modemLocation.GetCurrentLocation()
+			if err != nil {
+				log.Println("error getting current location:", err)
+				continue
+			}
+
+			cellID := mloc.ThreeGppLacCi.Ci
+			lac := mloc.ThreeGppLacCi.Lac
+			tac := mloc.ThreeGppLacCi.Tac
+			timestamp := time.Now().UnixNano()
+			tags := fmt.Sprintf(
+				"imei=%s,icc=%s,imsi=%s,operatorid=%s,operator=%s,v_operator=%s,rat=%s",
+				imei, simIdent, simImsi, simOpIdent, simOp, opName, rat,
+			)
+			// modem_up (always 1)
+			w.Write([]byte(fmt.Sprintf("modem_up,%s up=1 %d\n", tags, timestamp)))
+
+			// modem_cellid, modem_lac, modem_tac as string only
+			w.Write([]byte(fmt.Sprintf("modem_cellid,%s cellid=\"%s\" %d\n", tags, cellID, timestamp)))
+			w.Write([]byte(fmt.Sprintf("modem_lac,%s lac=\"%s\" %d\n", tags, lac, timestamp)))
+			w.Write([]byte(fmt.Sprintf("modem_tac,%s tac=\"%s\" %d\n", tags, tac, timestamp)))
+
+			// Registration state
+			regState, err := modem3gpp.GetRegistrationState()
+			if err != nil {
+				log.Println("error getting registration state:", err)
+			} else {
+				isRoaming := 0
+				if regState == modemmanager.MmModem3gppRegistrationStateRoaming {
+					isRoaming = 1
+				}
+				w.Write([]byte(fmt.Sprintf("modem_roaming,%s roaming=%d %d\n", tags, isRoaming, timestamp)))
+				w.Write([]byte(fmt.Sprintf("modem_regstate,%s regstate=\"%s\" %d\n", tags, regState.String(), timestamp)))
+			}
+
+			// Connection state
+			state, err := modem.GetState()
+			if err != nil {
+				log.Println("error getting modem state:", err)
+			} else {
+				isRegistered := 0
+				if state >= modemmanager.MmModemStateRegistered {
+					isRegistered = 1
+				}
+				w.Write([]byte(fmt.Sprintf("modem_registered,%s registered=%d %d\n", tags, isRegistered, timestamp)))
+				isConnected := 0
+				if state == modemmanager.MmModemStateConnected {
+					isConnected = 1
+				}
+				w.Write([]byte(fmt.Sprintf("modem_connected,%s connected=%d %d\n", tags, isConnected, timestamp)))
+				w.Write([]byte(fmt.Sprintf("modem_state,%s state=\"%s\" %d\n", tags, state.String(), timestamp)))
+			}
+
+			// Operator code
+			opCode, err := modem3gpp.GetOperatorCode()
+			if err != nil {
+				log.Println("error getting operator code:", err)
+			} else {
+				if s, err := strconv.ParseFloat(opCode, 64); err == nil {
+					w.Write([]byte(fmt.Sprintf("modem_operatorcode,%s operatorcode=%f %d\n", tags, s, timestamp)))
+				} else {
+					w.Write([]byte(fmt.Sprintf("modem_operatorcode,%s operatorcode_str=\"%s\" %d\n", tags, opCode, timestamp)))
+				}
+			}
+
+			// Signal metrics
+			modemSignal, err := modem.GetSignal()
+			if err != nil {
+				log.Println("error getting modem signal:", err)
+			} else {
+				err = modemSignal.Setup(1)
+				if err != nil {
+					log.Println("error setting up modem signal:", err)
+				} else {
+					time.Sleep(2 * time.Second)
+					currentSignal, err := modemSignal.GetCurrentSignals()
+					if err != nil {
+						log.Println("error getting current signals:", err)
+					} else {
+						for _, sp := range currentSignal {
+							w.Write([]byte(fmt.Sprintf("modem_rssi,%s rssi=%f %d\n", tags, sp.Rssi, timestamp)))
+							w.Write([]byte(fmt.Sprintf("modem_rsrp,%s rsrp=%f %d\n", tags, sp.Rsrp, timestamp)))
+						}
+					}
+					if err := modemSignal.Setup(0); err != nil {
+						log.Println("error resetting modem signal setup:", err)
+					}
+				}
+			}
+		}
+	}
+}
+
 func main() {
 
 	flag.Parse()
@@ -392,17 +545,23 @@ func main() {
 	log.Printf("Starting modem exporter using ModemManager v%s", version)
 
 	exporter := NewExporter(mmgr)
-	prometheus.MustRegister(exporter)
 
-	http.Handle(*metricsPath, promhttp.Handler())
+	promRegistry := prometheus.NewRegistry()
+	promRegistry.MustRegister(exporter)
+
+	http.Handle(*metricsPath, promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{
+		EnableOpenMetrics: false,
+	}))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html>
              <head><title>Modem Exporter</title></head>
              <body>
              <h1>Modem Exporter</h1>
              <p><a href='` + *metricsPath + `'>Metrics</a></p>
+             <p><a href='/influx'>Influx Line Protocol</a></p>
              </body>
              </html>`))
 	})
+	http.HandleFunc("/influx", influxHandler(mmgr))
 	log.Fatal(http.ListenAndServe(*listenAddress, nil))
 }
