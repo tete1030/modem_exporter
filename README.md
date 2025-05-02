@@ -3,7 +3,7 @@ Prometheus Exporter for modemmanager metrics.
 
 ## architecture
 
-This exporter is basically piggy-backing on ModemManager and some [golang bindings](github.com/maltegrosse/go-modemmanager) to build a minimal prometheus exporter to expose the state of an LTE modem as prometheus metrics.
+This exporter is basically piggy-backing on ModemManager and some [golang bindings](github.com/tete1030/go-modemmanager) to build a minimal prometheus exporter to expose the state of an LTE modem as prometheus metrics.
 
 ## port and endpoint
 

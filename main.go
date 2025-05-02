@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/maltegrosse/go-modemmanager"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/tete1030/go-modemmanager"
 )
 
 const namespace = "modem"
@@ -446,24 +446,24 @@ func influxHandler(mmgr modemmanager.ModemManager) http.HandlerFunc {
 				imei, simIdent, simImsi, simOpIdent, simOp, opName, rat,
 			)
 			// modem_up (always 1)
-			w.Write([]byte(fmt.Sprintf("modem_up,%s up=1 %d\n", tags, timestamp)))
+			w.Write([]byte(fmt.Sprintf("modem_up,%s up=true %d\n", tags, timestamp)))
 
 			// modem_cellid, modem_lac, modem_tac as string only
-			w.Write([]byte(fmt.Sprintf("modem_cellid,%s cellid=\"%s\" %d\n", tags, cellID, timestamp)))
-			w.Write([]byte(fmt.Sprintf("modem_lac,%s lac=\"%s\" %d\n", tags, lac, timestamp)))
-			w.Write([]byte(fmt.Sprintf("modem_tac,%s tac=\"%s\" %d\n", tags, tac, timestamp)))
+			w.Write([]byte(fmt.Sprintf("modem_cellid,%s cellid=%s %d\n", tags, cellID, timestamp)))
+			w.Write([]byte(fmt.Sprintf("modem_lac,%s lac=%s %d\n", tags, lac, timestamp)))
+			w.Write([]byte(fmt.Sprintf("modem_tac,%s tac=%s %d\n", tags, tac, timestamp)))
 
 			// Registration state
 			regState, err := modem3gpp.GetRegistrationState()
 			if err != nil {
 				log.Println("error getting registration state:", err)
 			} else {
-				isRoaming := 0
+				isRoaming := false
 				if regState == modemmanager.MmModem3gppRegistrationStateRoaming {
-					isRoaming = 1
+					isRoaming = true
 				}
-				w.Write([]byte(fmt.Sprintf("modem_roaming,%s roaming=%d %d\n", tags, isRoaming, timestamp)))
-				w.Write([]byte(fmt.Sprintf("modem_regstate,%s regstate=\"%s\" %d\n", tags, regState.String(), timestamp)))
+				w.Write([]byte(fmt.Sprintf("modem_roaming,%s roaming=%t %d\n", tags, isRoaming, timestamp)))
+				w.Write([]byte(fmt.Sprintf("modem_regstate,%s regstate=%s %d\n", tags, regState.String(), timestamp)))
 			}
 
 			// Connection state
@@ -471,17 +471,17 @@ func influxHandler(mmgr modemmanager.ModemManager) http.HandlerFunc {
 			if err != nil {
 				log.Println("error getting modem state:", err)
 			} else {
-				isRegistered := 0
+				isRegistered := false
 				if state >= modemmanager.MmModemStateRegistered {
-					isRegistered = 1
+					isRegistered = true
 				}
-				w.Write([]byte(fmt.Sprintf("modem_registered,%s registered=%d %d\n", tags, isRegistered, timestamp)))
-				isConnected := 0
+				w.Write([]byte(fmt.Sprintf("modem_registered,%s registered=%t %d\n", tags, isRegistered, timestamp)))
+				isConnected := false
 				if state == modemmanager.MmModemStateConnected {
-					isConnected = 1
+					isConnected = true
 				}
-				w.Write([]byte(fmt.Sprintf("modem_connected,%s connected=%d %d\n", tags, isConnected, timestamp)))
-				w.Write([]byte(fmt.Sprintf("modem_state,%s state=\"%s\" %d\n", tags, state.String(), timestamp)))
+				w.Write([]byte(fmt.Sprintf("modem_connected,%s connected=%t %d\n", tags, isConnected, timestamp)))
+				w.Write([]byte(fmt.Sprintf("modem_state,%s state=%s %d\n", tags, state.String(), timestamp)))
 			}
 
 			// Operator code
@@ -489,10 +489,10 @@ func influxHandler(mmgr modemmanager.ModemManager) http.HandlerFunc {
 			if err != nil {
 				log.Println("error getting operator code:", err)
 			} else {
-				if s, err := strconv.ParseFloat(opCode, 64); err == nil {
-					w.Write([]byte(fmt.Sprintf("modem_operatorcode,%s operatorcode=%f %d\n", tags, s, timestamp)))
+				if s, err := strconv.ParseInt(opCode, 10, 32); err == nil {
+					w.Write([]byte(fmt.Sprintf("modem_operatorcode,%s operatorcode=%d %d\n", tags, s, timestamp)))
 				} else {
-					w.Write([]byte(fmt.Sprintf("modem_operatorcode,%s operatorcode_str=\"%s\" %d\n", tags, opCode, timestamp)))
+					log.Println("error parsing operator code:", err)
 				}
 			}
 
@@ -513,8 +513,12 @@ func influxHandler(mmgr modemmanager.ModemManager) http.HandlerFunc {
 						for _, sp := range currentSignal {
 							w.Write([]byte(fmt.Sprintf("modem_rssi,%s rssi=%f %d\n", tags, sp.Rssi, timestamp)))
 							w.Write([]byte(fmt.Sprintf("modem_rsrp,%s rsrp=%f %d\n", tags, sp.Rsrp, timestamp)))
+							w.Write([]byte(fmt.Sprintf("modem_rsrq,%s rsrq=%f %d\n", tags, sp.Rsrq, timestamp)))
+							w.Write([]byte(fmt.Sprintf("modem_snr,%s snr=%f %d\n", tags, sp.Snr, timestamp)))
+							w.Write([]byte(fmt.Sprintf("modem_ber,%s ber=%f %d\n", tags, sp.ErrorRate, timestamp)))
 						}
 					}
+
 					if err := modemSignal.Setup(0); err != nil {
 						log.Println("error resetting modem signal setup:", err)
 					}
