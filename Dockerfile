@@ -1,10 +1,10 @@
 FROM golang:alpine AS builder
 RUN apk add git
 
-ADD ./ /go/src/github.com/ravens/modem_exporter/
+ADD ./ /go/src/github.com/tete1030/modem_exporter/
 
 RUN set -ex && \
-  cd /go/src/github.com/ravens/modem_exporter && \       
+  cd /go/src/github.com/tete1030/modem_exporter && \       
   CGO_ENABLED=0 go build \
         -v -a \
         -ldflags '-extldflags "-static"' && \
