@@ -511,11 +511,13 @@ func influxHandler(mmgr modemmanager.ModemManager) http.HandlerFunc {
 						log.Println("error getting current signals:", err)
 					} else {
 						for _, sp := range currentSignal {
-							w.Write([]byte(fmt.Sprintf("modem_rssi,%s rssi=%f %d\n", tags, sp.Rssi, timestamp)))
-							w.Write([]byte(fmt.Sprintf("modem_rsrp,%s rsrp=%f %d\n", tags, sp.Rsrp, timestamp)))
-							w.Write([]byte(fmt.Sprintf("modem_rsrq,%s rsrq=%f %d\n", tags, sp.Rsrq, timestamp)))
-							w.Write([]byte(fmt.Sprintf("modem_snr,%s snr=%f %d\n", tags, sp.Snr, timestamp)))
-							w.Write([]byte(fmt.Sprintf("modem_ber,%s ber=%f %d\n", tags, sp.ErrorRate, timestamp)))
+							signalType := sp.Type.String()
+							signalTags := fmt.Sprintf("%s,signaltype=%s", tags, signalType)
+							w.Write([]byte(fmt.Sprintf("modem_rssi,%s rssi=%f %d\n", signalTags, sp.Rssi, timestamp)))
+							w.Write([]byte(fmt.Sprintf("modem_rsrp,%s rsrp=%f %d\n", signalTags, sp.Rsrp, timestamp)))
+							w.Write([]byte(fmt.Sprintf("modem_rsrq,%s rsrq=%f %d\n", signalTags, sp.Rsrq, timestamp)))
+							w.Write([]byte(fmt.Sprintf("modem_snr,%s snr=%f %d\n", signalTags, sp.Snr, timestamp)))
+							w.Write([]byte(fmt.Sprintf("modem_ber,%s ber=%f %d\n", signalTags, sp.ErrorRate, timestamp)))
 						}
 					}
 
@@ -532,25 +534,26 @@ func influxHandler(mmgr modemmanager.ModemManager) http.HandlerFunc {
 					log.Println("error getting bearer type:", err)
 					bearerType = modemmanager.MmBearerTypeUnknown
 				}
+				bearerTags := fmt.Sprintf("%s,bearer=%s", tags, bearerType.String())
 				stats, err := bearer.GetStats()
 				if err != nil {
 					log.Println("error getting bearer stats:", err)
 				} else {
-					w.Write([]byte(fmt.Sprintf("modem_bearer_stats,%s,bearer=%s rx_bytes=%du,tx_bytes=%du,duration=%du %d\n", tags, bearerType.String(), stats.RxBytes, stats.TxBytes, stats.Duration, timestamp)))
+					w.Write([]byte(fmt.Sprintf("modem_bearer_stats,%s rx_bytes=%du,tx_bytes=%du,duration=%du %d\n", bearerTags, stats.RxBytes, stats.TxBytes, stats.Duration, timestamp)))
 				}
 
 				bearerIpConfig, err := bearer.GetIp4Config()
 				if err != nil {
 					log.Println("error getting bearer ip config:", err)
 				} else {
-					w.Write([]byte(fmt.Sprintf("modem_bearer_ip_config,%s,bearer=%s ip=%s %d\n", tags, bearerType.String(), bearerIpConfig.Address, timestamp)))
+					w.Write([]byte(fmt.Sprintf("modem_bearer_ip_config,%s ip=%s %d\n", bearerTags, bearerIpConfig.Address, timestamp)))
 				}
 
 				bearerIp6Config, err := bearer.GetIp6Config()
 				if err != nil {
 					log.Println("error getting bearer ip6 config:", err)
 				} else {
-					w.Write([]byte(fmt.Sprintf("modem_bearer_ip6_config,%s,bearer=%s ip=%s %d\n", tags, bearerType.String(), bearerIp6Config.Address, timestamp)))
+					w.Write([]byte(fmt.Sprintf("modem_bearer_ip6_config,%s ip=%s %d\n", bearerTags, bearerIp6Config.Address, timestamp)))
 				}
 			}
 
