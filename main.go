@@ -402,21 +402,30 @@ func influxHandler(mmgr modemmanager.ModemManager) http.HandlerFunc {
 				log.Println("error getting sim imsi:", err)
 				continue
 			}
+
 			simOpIdent, err := sim.GetOperatorIdentifier()
 			if err != nil {
 				log.Println("error getting sim operator identifier:", err)
-				continue
 			}
 			simOp, err := sim.GetOperatorName()
 			if err != nil {
 				log.Println("error getting sim operator name:", err)
-				continue
 			}
+
 			opName, err := modem3gpp.GetOperatorName()
 			if err != nil {
 				log.Println("error getting operator name:", err)
-				continue
 			}
+
+			mcc, err := modem3gpp.GetMcc()
+			if err != nil {
+				log.Println("error getting mcc:", err)
+			}
+			mnc, err := modem3gpp.GetMnc()
+			if err != nil {
+				log.Println("error getting mnc:", err)
+			}
+
 			ratList, err := modem.GetAccessTechnologies()
 			if err != nil {
 				log.Println("error getting access technologies:", err)
@@ -425,76 +434,120 @@ func influxHandler(mmgr modemmanager.ModemManager) http.HandlerFunc {
 			rat := ""
 			if len(ratList) > 0 {
 				rat = strings.ToLower(ratList[0].String())
+				if len(ratList) > 1 {
+					log.Println("multiple access technologies found, using first one. Dropped:", ratList[1:])
+				}
 			}
+
+			phoneNumber := ""
+			phoneNumberList, err := modem.GetOwnNumbers()
+			if err != nil {
+				log.Println("error getting own numbers:", err)
+			} else {
+				if len(phoneNumberList) > 0 {
+					phoneNumber = phoneNumberList[0]
+					if len(phoneNumberList) > 1 {
+						log.Println("multiple own numbers found, using first one. Dropped:", phoneNumberList[1:])
+					}
+				}
+			}
+
+			tags := fmt.Sprintf(
+				"imei=%s,icc=%s,imsi=%s,operatorid=%s,operator=%s,v_operator=%s,mcc=%s,mnc=%s,rat=%s,phone_number=%s",
+				imei, simIdent, simImsi, simOpIdent, simOp, opName, mcc, mnc, rat, phoneNumber,
+			)
+			timestamp := time.Now().UnixNano()
+
+			powerState, err := modem.GetPowerState()
+			if err != nil {
+				log.Println("error getting power state:", err)
+			}
+
+			signalQuality, signalQualityRecent, err := modem.GetSignalQuality()
+			if err != nil {
+				log.Println("error getting signal quality:", err)
+			}
+
+			cellID := ""
+			lac := ""
+			tac := ""
 			modemLocation, err := modem.GetLocation()
 			if err != nil {
 				log.Println("error getting modem location:", err)
-				continue
+			} else {
+				mloc, err := modemLocation.GetCurrentLocation()
+				if err != nil {
+					log.Println("error getting current location:", err)
+				} else {
+					cellID = mloc.ThreeGppLacCi.Ci
+					lac = mloc.ThreeGppLacCi.Lac
+					tac = mloc.ThreeGppLacCi.Tac
+				}
 			}
-			mloc, err := modemLocation.GetCurrentLocation()
-			if err != nil {
-				log.Println("error getting current location:", err)
-				continue
-			}
 
-			cellID := mloc.ThreeGppLacCi.Ci
-			lac := mloc.ThreeGppLacCi.Lac
-			tac := mloc.ThreeGppLacCi.Tac
-			timestamp := time.Now().UnixNano()
-			tags := fmt.Sprintf(
-				"imei=%s,icc=%s,imsi=%s,operatorid=%s,operator=%s,v_operator=%s,rat=%s",
-				imei, simIdent, simImsi, simOpIdent, simOp, opName, rat,
-			)
-			// modem_up (always 1)
-			w.Write([]byte(fmt.Sprintf("modem_up,%s up=true %d\n", tags, timestamp)))
-
-			// modem_cellid, modem_lac, modem_tac as string only
-			w.Write([]byte(fmt.Sprintf("modem_cellid,%s cellid=%s %d\n", tags, cellID, timestamp)))
-			w.Write([]byte(fmt.Sprintf("modem_lac,%s lac=%s %d\n", tags, lac, timestamp)))
-			w.Write([]byte(fmt.Sprintf("modem_tac,%s tac=%s %d\n", tags, tac, timestamp)))
-
-			// Registration state
 			regState, err := modem3gpp.GetRegistrationState()
+			var regStateStr string
+			var isRoaming bool
 			if err != nil {
 				log.Println("error getting registration state:", err)
+				regStateStr = "unknown"
+				isRoaming = false
 			} else {
-				isRoaming := false
-				if regState == modemmanager.MmModem3gppRegistrationStateRoaming {
-					isRoaming = true
-				}
-				w.Write([]byte(fmt.Sprintf("modem_roaming,%s roaming=%t %d\n", tags, isRoaming, timestamp)))
-				w.Write([]byte(fmt.Sprintf("modem_regstate,%s regstate=%s %d\n", tags, regState.String(), timestamp)))
+				regStateStr = regState.String()
+				isRoaming = regState == modemmanager.MmModem3gppRegistrationStateRoaming
 			}
 
-			// Connection state
 			state, err := modem.GetState()
+			var stateStr string
+			var isRegistered, isConnected bool
 			if err != nil {
 				log.Println("error getting modem state:", err)
+				stateStr = "unknown"
+				isRegistered = false
+				isConnected = false
 			} else {
-				isRegistered := false
-				if state >= modemmanager.MmModemStateRegistered {
-					isRegistered = true
-				}
-				w.Write([]byte(fmt.Sprintf("modem_registered,%s registered=%t %d\n", tags, isRegistered, timestamp)))
-				isConnected := false
-				if state == modemmanager.MmModemStateConnected {
-					isConnected = true
-				}
-				w.Write([]byte(fmt.Sprintf("modem_connected,%s connected=%t %d\n", tags, isConnected, timestamp)))
-				w.Write([]byte(fmt.Sprintf("modem_state,%s state=%s %d\n", tags, state.String(), timestamp)))
+				stateStr = state.String()
+				isRegistered = state >= modemmanager.MmModemStateRegistered
+				isConnected = state == modemmanager.MmModemStateConnected
 			}
 
-			// Operator code
 			opCode, err := modem3gpp.GetOperatorCode()
+			var opCodeInt int64
 			if err != nil {
 				log.Println("error getting operator code:", err)
+				opCodeInt = 0
 			} else {
-				if s, err := strconv.ParseInt(opCode, 10, 32); err == nil {
-					w.Write([]byte(fmt.Sprintf("modem_operatorcode,%s operatorcode=%d %d\n", tags, s, timestamp)))
+				if opCode == "" {
+					opCodeInt = 0
 				} else {
-					log.Println("error parsing operator code:", err)
+					if s, err := strconv.ParseInt(opCode, 10, 32); err == nil {
+						opCodeInt = s
+					} else {
+						log.Println("error parsing operator code:", err)
+						opCodeInt = 0
+					}
 				}
 			}
+
+			// Get message count
+			msgCount := 0
+			messaging, err := modem.GetMessaging()
+			if err != nil {
+				log.Println("error getting messaging:", err)
+			} else {
+				messages, err := messaging.List()
+				if err != nil {
+					log.Println("error listing messages:", err)
+				} else {
+					msgCount = len(messages)
+				}
+			}
+
+			// Write single modem_status metric
+			w.Write([]byte(fmt.Sprintf(
+				"modem_status,%s power_state=\"%s\",cellid=\"%s\",lac=\"%s\",tac=\"%s\",registered=%t,connected=%t,state=\"%s\",operatorcode=%d,roaming=%t,regstate=\"%s\",signal_quality=%d,signal_quality_recent=%t,message_count=%d %d\n",
+				tags, powerState.String(), cellID, lac, tac, isRegistered, isConnected, stateStr, opCodeInt, isRoaming, regStateStr, signalQuality, signalQualityRecent, msgCount, timestamp,
+			)))
 
 			// Signal metrics
 			modemSignal, err := modem.GetSignal()
@@ -505,20 +558,23 @@ func influxHandler(mmgr modemmanager.ModemManager) http.HandlerFunc {
 				if err != nil {
 					log.Println("error setting up modem signal:", err)
 				} else {
-					time.Sleep(2 * time.Second)
-					currentSignal, err := modemSignal.GetCurrentSignals()
+					time.Sleep(400 * time.Millisecond)
+					gsmSignal, err := modemSignal.GetGsm()
 					if err != nil {
-						log.Println("error getting current signals:", err)
+						log.Println("error getting gsm signal:", err)
 					} else {
-						for _, sp := range currentSignal {
-							signalType := sp.Type.String()
-							signalTags := fmt.Sprintf("%s,signaltype=%s", tags, signalType)
-							w.Write([]byte(fmt.Sprintf("modem_rssi,%s rssi=%f %d\n", signalTags, sp.Rssi, timestamp)))
-							w.Write([]byte(fmt.Sprintf("modem_rsrp,%s rsrp=%f %d\n", signalTags, sp.Rsrp, timestamp)))
-							w.Write([]byte(fmt.Sprintf("modem_rsrq,%s rsrq=%f %d\n", signalTags, sp.Rsrq, timestamp)))
-							w.Write([]byte(fmt.Sprintf("modem_snr,%s snr=%f %d\n", signalTags, sp.Snr, timestamp)))
-							w.Write([]byte(fmt.Sprintf("modem_ber,%s ber=%f %d\n", signalTags, sp.ErrorRate, timestamp)))
-						}
+						signalType := gsmSignal.Type.String()
+						signalTags := fmt.Sprintf("%s,signaltype=%s", tags, signalType)
+						w.Write([]byte(fmt.Sprintf("modem_signal,%s rssi=%f,ber=%f %d\n", signalTags, gsmSignal.Rssi, gsmSignal.ErrorRate, timestamp)))
+					}
+
+					lteSignal, err := modemSignal.GetLte()
+					if err != nil {
+						log.Println("error getting lte signal:", err)
+					} else {
+						signalType := lteSignal.Type.String()
+						signalTags := fmt.Sprintf("%s,signaltype=%s", tags, signalType)
+						w.Write([]byte(fmt.Sprintf("modem_signal,%s rssi=%f,rsrp=%f,rsrq=%f,snr=%f,ber=%f %d\n", signalTags, lteSignal.Rssi, lteSignal.Rsrp, lteSignal.Rsrq, lteSignal.Snr, lteSignal.ErrorRate, timestamp)))
 					}
 
 					if err := modemSignal.Setup(0); err != nil {
@@ -539,35 +595,24 @@ func influxHandler(mmgr modemmanager.ModemManager) http.HandlerFunc {
 				if err != nil {
 					log.Println("error getting bearer stats:", err)
 				} else {
-					w.Write([]byte(fmt.Sprintf("modem_bearer_stats,%s rx_bytes=%du,tx_bytes=%du,duration=%du %d\n", bearerTags, stats.RxBytes, stats.TxBytes, stats.Duration, timestamp)))
+					w.Write([]byte(fmt.Sprintf("modem_bearer_stats,%s rx_bytes=%d,tx_bytes=%d,duration=%d %d\n", bearerTags, stats.RxBytes, stats.TxBytes, stats.Duration, timestamp)))
 				}
 
 				bearerIpConfig, err := bearer.GetIp4Config()
 				if err != nil {
 					log.Println("error getting bearer ip config:", err)
 				} else {
-					w.Write([]byte(fmt.Sprintf("modem_bearer_ip_config,%s ip=%s %d\n", bearerTags, bearerIpConfig.Address, timestamp)))
+					w.Write([]byte(fmt.Sprintf("modem_bearer_ip_config,%s ip=\"%s\" %d\n", bearerTags, bearerIpConfig.Address, timestamp)))
 				}
 
 				bearerIp6Config, err := bearer.GetIp6Config()
 				if err != nil {
 					log.Println("error getting bearer ip6 config:", err)
 				} else {
-					w.Write([]byte(fmt.Sprintf("modem_bearer_ip6_config,%s ip=%s %d\n", bearerTags, bearerIp6Config.Address, timestamp)))
+					w.Write([]byte(fmt.Sprintf("modem_bearer_ip6_config,%s ip=\"%s\" %d\n", bearerTags, bearerIp6Config.Address, timestamp)))
 				}
 			}
 
-			messaging, err := modem.GetMessaging()
-			if err != nil {
-				log.Println("error getting messaging:", err)
-			} else {
-				messages, err := messaging.List()
-				if err != nil {
-					log.Println("error listing messages:", err)
-				} else {
-					w.Write([]byte(fmt.Sprintf("modem_message_count,%s message_count=%du %d\n", tags, len(messages), timestamp)))
-				}
-			}
 		}
 	}
 }

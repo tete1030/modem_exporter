@@ -4,7 +4,7 @@ go 1.24
 
 require (
 	github.com/prometheus/client_golang v1.22.0
-	github.com/tete1030/go-modemmanager v0.1.4
+	github.com/tete1030/go-modemmanager v0.1.5
 )
 
 require (

@@ -272,6 +272,8 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/stretchr/testify v1.4.0/go.mod h1:j7eGeouHqKxXV5pUuKE4zz7dFj8WfuZ+81PSLYec5m4=
 github.com/tete1030/go-modemmanager v0.1.4 h1:echkDsOmG+31AWxF0uglkwAVQYZE/aof189TXI+lne4=
 github.com/tete1030/go-modemmanager v0.1.4/go.mod h1:hkkc3GZQSzNGr93rAFk9MN9vZ77LKI6dnpWF4RWVQec=
+github.com/tete1030/go-modemmanager v0.1.5 h1:O4QiW/GqVVFtXExqHLLRmAYMhxlRPoGzNjfLo5fNDIo=
+github.com/tete1030/go-modemmanager v0.1.5/go.mod h1:hkkc3GZQSzNGr93rAFk9MN9vZ77LKI6dnpWF4RWVQec=
 github.com/tmc/grpc-websocket-proxy v0.0.0-20170815181823-89b8d40f7ca8/go.mod h1:ncp9v5uamzpCO7NfCPTXjqaC+bZgJeR0sMTm6dMHP7U=
 github.com/urfave/cli v1.20.0/go.mod h1:70zkFmudgCuE/ngEzBv17Jvp/497gISqfk5gWijbERA=
 github.com/urfave/cli v1.22.1/go.mod h1:Gos4lmkARVdJ6EkW0WaNv/tZAAMe9V7XWyB60NtXRu0=
